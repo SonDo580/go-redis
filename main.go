@@ -16,13 +16,21 @@ func main() {
 	}
 	fmt.Println("Listening on port ", PORT)
 
+	// Create/Open the AOF that stores RESP commands
+	aof, err := NewAof("database.aof")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer aof.Close()
+
 	// Listen for connections
+	// (currently only accept 1 connection)
 	conn, err := listener.Accept()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-
 	defer conn.Close()
 
 	for {
@@ -47,7 +55,6 @@ func main() {
 		command := strings.ToUpper(value.array[0].bulk)
 		args := value.array[1:]
 
-		// Handle command and respond to client
 		writer := NewWriter(conn)
 
 		handler, ok := Handlers[command]
@@ -57,6 +64,12 @@ func main() {
 			continue
 		}
 
+		// Append commands that modify database state to AOF
+		if command == CmdSet || command == CmdHSet {
+			aof.Write(value)
+		}
+
+		// Handle command and respond to client
 		result := handler(args)
 		writer.Write(result)
 	}

@@ -2,13 +2,21 @@ package main
 
 import "sync"
 
+const (
+	CmdPing = "PING"
+	CmdSet  = "SET"
+	CmdGet  = "GET"
+	CmdHSet = "HSET"
+	CmdHGet = "HGET"
+)
+
 // Map commands to handlers
 var Handlers = map[string]func([]Value) Value{
-	"PING": ping,
-	"SET":  set,
-	"GET":  get,
-	"HSET": hset,
-	"HGET": hget,
+	CmdPing: ping,
+	CmdSet:  set,
+	CmdGet:  get,
+	CmdHSet: hset,
+	CmdHGet: hget,
 }
 
 // ===== PING =====
