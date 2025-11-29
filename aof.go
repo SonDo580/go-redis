@@ -1,16 +1,15 @@
 package main
 
 import (
-	"bufio"
+	"io"
 	"os"
 	"sync"
 	"time"
 )
 
 type Aof struct {
-	file   *os.File      // append-only file to store RESP commands
-	reader *bufio.Reader // reader to read RESP commands from the file
-	mu     sync.Mutex
+	file *os.File // append-only file to store RESP commands
+	mu   sync.Mutex
 }
 
 func NewAof(path string) (*Aof, error) {
@@ -21,10 +20,7 @@ func NewAof(path string) (*Aof, error) {
 		return nil, err
 	}
 
-	aof := &Aof{
-		file:   file,
-		reader: bufio.NewReader(file),
-	}
+	aof := &Aof{file: file}
 
 	// Start a goroutine to flush the AOF to disk every 1 second
 	go func() {
@@ -55,6 +51,29 @@ func (aof *Aof) Write(value Value) error {
 	_, err := aof.file.Write(value.Marshal())
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// Read the AOF, deserialize RESP commands, invoke provided callback for each command
+// (assume the file is valid, in real-world scenario it could be corrupted)
+func (aof *Aof) Read(callback func(value Value)) error {
+	aof.mu.Lock()
+	defer aof.mu.Unlock()
+
+	resp := NewResp(aof.file)
+
+	for {
+		value, err := resp.Read()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+
+		callback(value)
 	}
 
 	return nil
