@@ -1,16 +1,15 @@
-# Mini Redis
+# Go Redis
 
-A simple Redis-like server implemented in Go.
+A Redis-like server implemented in Go.
 
 ## Guide
 
-[Build Redis from scratch](https://www.build-redis-from-scratch.dev/)
+- Follow-along: [Build Redis from scratch](https://www.build-redis-from-scratch.dev/)
+- Guidelines: [CodeCrafters - Build Your Own Redis](https://github.com/codecrafters-io/build-your-own-redis/tree/main/stage_descriptions)
 
-## Features
+## Differences from real Redis
 
-- RESP (Redis serialization protocol) for communication.
-- In-memory database with persistence using AOF (append-only file)
-- Redis commands: `PING`, `SET`, `GET`, `HSET`, `HGET`
+- Use `goroutine-per-client` model, not single-threaded event loop.
 
 ## Prerequisites
 
@@ -23,7 +22,7 @@ A simple Redis-like server implemented in Go.
 
 ```bash
 # Clone the repository
-git clone git@github.com:SonDo580/mini-redis.git
+git clone git@github.com:SonDo580/go-redis.git
 
 # Run the server
 go run .
@@ -34,19 +33,3 @@ go run .
 ```bash
 redis-cli -p 6379
 ```
-
-Example commands:
-
-```
-PING
-SET animal tiger
-GET animal
-HSET user name Son
-HGET user name
-```
-
-## TODO (Self-implemented)
-
-- handle multiple client connections
-- handle more Redis commands
-- ...
