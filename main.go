@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	// Create new server
+	// Start a TCP listener
 	const PORT string = ":6379"
 	listener, err := net.Listen("tcp", PORT)
 	if err != nil {
@@ -16,7 +16,7 @@ func main() {
 	}
 	fmt.Println("Listening on port ", PORT)
 
-	// Create/Open the AOF that stores RESP commands
+	// Load the AOF
 	aof, err := NewAof("database.aof")
 	if err != nil {
 		fmt.Println(err)
@@ -24,7 +24,7 @@ func main() {
 	}
 	defer aof.Close()
 
-	// Rebuild in-memory state by replaying commands from the AOF
+	// Restore state
 	aof.Read(func(value Value) {
 		command := strings.ToUpper(value.array[0].bulk)
 		args := value.array[1:]
@@ -34,56 +34,60 @@ func main() {
 			fmt.Println("Invalid command: ", command)
 			return
 		}
-
 		handler(args)
 	})
 
-	// Listen for connections
-	// (currently only accept 1 connection)
-	conn, err := listener.Accept()
-	if err != nil {
-		fmt.Println(err)
-		return
+	// Accept connections (goroutine-per-client)
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		go handleClient(conn, aof)
 	}
+
+}
+
+func handleClient(conn net.Conn, aof *Aof) {
 	defer conn.Close()
 
+	resp := NewResp(conn)
+	writer := NewWriter(conn)
+
 	for {
-		// Read message from client
-		resp := NewResp(conn)
 		value, err := resp.Read()
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 
-		if value.typ != RespTypeArray {
-			fmt.Println("Invalid request, expected array")
-			continue
-		}
-
-		if len(value.array) == 0 {
-			fmt.Println("Invalid request, expected array length > 0")
+		if value.typ != RespTypeArray || len(value.array) == 0 {
+			writer.Write(Value{
+				typ: RespTypeError,
+				str: "ERR invalid request: expected non-empty array",
+			})
 			continue
 		}
 
 		command := strings.ToUpper(value.array[0].bulk)
 		args := value.array[1:]
 
-		writer := NewWriter(conn)
-
 		handler, ok := Handlers[command]
 		if !ok {
-			fmt.Println("Invalid command: ", command)
-			writer.Write(Value{typ: RespTypeString, str: ""})
+			writer.Write(Value{
+				typ: RespTypeError,
+				str: fmt.Sprintf("ERR unknown command '%s'", command),
+			})
 			continue
 		}
 
-		// Append commands that modify database state to AOF
+		// Append mutating commands to AOF
 		if command == CmdSet || command == CmdHSet {
 			aof.Write(value)
 		}
 
-		// Handle command and respond to client
 		result := handler(args)
 		writer.Write(result)
 	}
