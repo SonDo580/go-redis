@@ -4,6 +4,7 @@ import "sync"
 
 const (
 	CmdPing = "PING"
+	CmdEcho = "ECHO"
 	CmdSet  = "SET"
 	CmdGet  = "GET"
 	CmdHSet = "HSET"
@@ -13,6 +14,7 @@ const (
 // Map commands to handlers
 var Handlers = map[string]func([]Value) Value{
 	CmdPing: ping,
+	CmdEcho: echo,
 	CmdSet:  set,
 	CmdGet:  get,
 	CmdHSet: hset,
@@ -26,6 +28,14 @@ func ping(args []Value) Value {
 		reply = args[0].bulk
 	}
 	return Value{typ: RespTypeString, str: reply}
+}
+
+// ===== ECHO =====
+func echo(args []Value) Value {
+	if len(args) != 1 {
+		return Value{typ: RespTypeError, str: "ERR wrong number of arguments for 'echo' command"}
+	}
+	return Value{typ: RespTypeBulk, bulk: args[0].bulk}
 }
 
 // ===== SET & GET =====
