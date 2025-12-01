@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -62,19 +65,70 @@ func echo(args []Value) Value {
 var SETs = map[string]string{}
 var SETsMu = sync.RWMutex{}
 
+// Note:
+// - Write lock: Allow 1 writer, block readers and other writers
+// - Read lock: Allow multiple readers, block writers
+
+// Map SET key -> Unix timestamp in ms
+var SETsExpirations = map[string]int64{}
+var SETsExpirationsMu = sync.RWMutex{}
+
 func set(args []Value) Value {
-	err_val := checkArgsCount(CmdSet, args, 2)
-	if err_val != nil {
-		return *err_val
+	if len(args) < 2 {
+		return Value{
+			typ: RespTypeError,
+			str: "ERR wrong number of arguments for 'SET' command",
+		}
 	}
 
 	key := args[0].bulk
 	value := args[1].bulk
 
-	// Write lock: Allow 1 writer, block readers and other writers
+	// Default: no expiration
+	var expiresAtMs int64 = 0
+
+	// Parse optional arguments
+	for i := 2; i < len(args); i++ {
+		option := strings.ToUpper(args[i].bulk)
+
+		switch option {
+		case "PX":
+			// Handle PX milliseconds ()
+			if i+1 > len(args) {
+				return Value{
+					typ: RespTypeError,
+					str: "ERR SET PX requires an argument",
+				}
+			}
+
+			ms, err := strconv.ParseInt(args[i+1].bulk, 10, 64)
+			if err != nil || ms <= 0 {
+				return Value{
+					typ: RespTypeError,
+					str: "ERR SET PX value must be a positive integer",
+				}
+			}
+
+			expiresAtMs = time.Now().UnixMilli() + ms
+			i++ // skip the value argument
+		default:
+			return Value{
+				typ: RespTypeError,
+				str: "ERR unknown option '%s' for 'SET' command",
+			}
+		}
+	}
+
 	SETsMu.Lock()
 	SETs[key] = value
 	SETsMu.Unlock()
+
+	// Set expiration if specified
+	if expiresAtMs > 0 {
+		SETsExpirationsMu.Lock()
+		SETsExpirations[key] = expiresAtMs
+		SETsExpirationsMu.Unlock()
+	}
 
 	return Value{typ: RespTypeString, str: "OK"}
 }
@@ -87,7 +141,25 @@ func get(args []Value) Value {
 
 	key := args[0].bulk
 
-	// Read lock: Allow multiple readers, block writers
+	// Check if the key has expired
+	SETsExpirationsMu.RLock()
+	expiresAtMs, ok := SETsExpirations[key]
+	SETsExpirationsMu.RUnlock()
+
+	// Handle expired key: delete from both maps and return null
+	if ok && time.Now().UnixMilli() > expiresAtMs {
+		SETsMu.Lock()
+		delete(SETs, key)
+		SETsMu.Unlock()
+
+		SETsExpirationsMu.Lock()
+		delete(SETsExpirations, key)
+		SETsExpirationsMu.Unlock()
+
+		return Value{typ: RespTypeNull}
+	}
+
+	// Read value
 	SETsMu.RLock()
 	value, ok := SETs[key]
 	SETsMu.RUnlock()
